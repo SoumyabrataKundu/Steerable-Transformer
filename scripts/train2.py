@@ -1,25 +1,31 @@
+import torch
+import torch.nn as nn
+import torch.utils
+import torch.backends.cudnn
+from torch.utils.data import DataLoader
+import numpy as np
 import os
 import logging
 import copy
 import sys
+import math
 import time
-import h5py
-
-import torch
-from Steerable.Segmentation.loss import SegmentationLoss
-from Steerable.Segmentation.metrics import Metrics
 
 
-def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning_rate, weight_decay, num_epochs, num_workers, lr_decay_rate, lr_decay_schedule, save=0):
+
+def main(model_path, data_path, batch_size, n_radius, max_m, interpolation, restricted, learning_rate, weight_decay, num_epochs, num_workers, restore, lr_decay_rate, lr_decay_schedule):
    
  ################################################################################################################################### 
  ##################################################### Logging #####################################################################
  ###################################################################################################################################
     arguments = copy.deepcopy(locals())
-    
+    restore = bool(restore)    
     log_dir = os.path.join(model_path, 'log/')
     if not os.path.isdir(log_dir):
         os.mkdir(log_dir)
+
+    if restore:
+        restore_dir = log_dir
     
     # Creating the logger
     logger = logging.getLogger("train")
@@ -27,21 +33,26 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
     logger.handlers = []
     ch = logging.StreamHandler()
     logger.addHandler(ch)
-    fh = logging.FileHandler(os.path.join(log_dir, "log.txt"), mode = "w")
+    fh = logging.FileHandler(os.path.join(log_dir, "log.txt"), mode = "a" if restore else "w")
     logger.addHandler(fh)
 
     logger.info("%s", repr(arguments))
     logger.info("\n\n")
+    torch.backends.cudnn.benchmark = True
     
  ###################################################################################################################################
  ################################## Loading Model, Datasets, Loss and Optimizer ####################################################
  ###################################################################################################################################
     
     # Load the model
-    model = Model(n_radius, max_m)
-    num_classes = model.num_classes
+    model = Model(n_radius, max_m, interpolation, restricted)
     device = torch.device("cuda")
+    #model = nn.DataParallel(model)
     model = model.to(device)
+
+    ## Restoring from previous training
+    if restore:
+        model.load_state_dict(torch.load(os.path.join(restore_dir, "state.pkl")))
     
     logger.info("{} paramerters in total".format(sum(x.numel() for x in model.parameters())))
     
@@ -49,20 +60,20 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
     datasets = get_datasets(data_path)
 
     ## Dataloaders
-    train_loader = torch.utils.data.DataLoader(dataset = datasets['train'], batch_size = batch_size, shuffle = True, num_workers = num_workers)
+    if datasets['train'] is not None:
+        train_loader = DataLoader(dataset = datasets['train'], batch_size = batch_size, shuffle = True, num_workers = num_workers)
     val_loader = None
     if datasets['val'] is not None:
-         val_loader = torch.utils.data.DataLoader(dataset = datasets['val'], batch_size = batch_size, num_workers = num_workers)
+         val_loader = DataLoader(dataset = datasets['val'], batch_size = batch_size, num_workers = num_workers)
     
     # Loss
-    criterion = Loss() 
+    criterion = nn.CrossEntropyLoss()
     
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr = 0, weight_decay = weight_decay)
     
-
     def get_learning_rate(epoch):
-        return learning_rate * (lr_decay_rate ** (epoch // lr_decay_schedule))
+        return learning_rate * np.power(lr_decay_rate, epoch // lr_decay_schedule)
 
 
 ####################################################################################################################################
@@ -80,19 +91,23 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
         outputs = model(inputs)
         loss = criterion(outputs, labels)
 
+        # Logging
+        with torch.no_grad():
+            _, predictions = torch.max(outputs, 1)
+            accuracy = predictions.eq(labels).sum().item() / len(predictions)
+
         # Backward Pass
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         
-        return loss.item()
+        return loss.item(), accuracy
 
     def evaluate(dataloader):
         model.eval()
-        metrics = Metrics(num_classes)
-        total_loss = 0
-        total_score = 0
-        num_inputs = 0
+
+        total_correct = 0
+        total_samples = 0
         logger.info('\n Validation : \n')
         with torch.no_grad():
 
@@ -104,27 +119,32 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
                 t0 = time.time()
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
+                correct = outputs.argmax(1).eq(labels).long().sum().item()
                 t1 = time.time()
-        
-                total_loss += loss * len(inputs)
-                preds = torch.argmax(outputs, dim=1)
-                metrics.confusion_matrix(preds, labels)
-                score = metrics.mDice()
-                total_score += score * len(inputs)
-                num_inputs += len(inputs)
 
-                # Logging
-                logger.info(f"Validation [{batch_idx+1}/{len(dataloader)}] Time : {(t1-t0)*1e3:.1f} ms Loss : {loss:.2f} Score : {score:.4f} <Score> : {total_score / num_inputs:.4f}")
+                total_correct += correct
+                total_samples += len(inputs)
+
+                acc = correct / len(inputs)
             
-        return total_loss / len(datasets['val']), total_score / len(datasets['val'])
+                # Logging
+                logger.info(f"Validation [{batch_idx+1}/{len(dataloader)}] Time : {(t1-t0)*1e3:.1f} ms \tACC={acc:.2f}")
+            
+        return total_correct / total_samples, loss
+    
     
 ####################################################################################################################################
 ################################################### Training Loop ##################################################################
 ####################################################################################################################################
     
+    dynamics = []
     epoch = 0
-    early_stop = 0
-    best_val_loss, best_score = float('inf'), 0
+    score = best_score = 0
+    val_loss = best_val_loss = 100000
+    if restore:
+        #dynamics = torch.load(os.path.join(restore_dir, "dynamics.pkl"))
+        #epoch = dynamics[-1]['epoch'] + 1
+        epoch=130
     
     for epoch in range(epoch, num_epochs):
         
@@ -134,52 +154,61 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
             p['lr'] = lr
         
         total_iteration_loss = 0
+        total_iteration_accuracy = 0
         total_iteration_time = 0
-        
+ 
         for batch_index, (inputs, labels) in enumerate(train_loader):
 
-            model.train()
             # Train Step
             t0 = time.time()
-            iteration_loss = train_step(inputs, labels.long())
+            iterration_loss, iteration_accuracy = train_step(inputs, labels)
             t1 = time.time()
 
             total_iteration_time = total_iteration_time + (t1-t0)*1000
             avg_iteration_time = total_iteration_time / (batch_index + 1) 
             ## Loss
-            total_iteration_loss += iteration_loss
+            total_iteration_loss += iterration_loss
             avg_loss = total_iteration_loss / (batch_index+1)
+            ## Accuracy
+            total_iteration_accuracy += iteration_accuracy
+            avg_accuracy = total_iteration_accuracy / (batch_index+1)
 
             # Logging
             logger.info(f"[{epoch+1}/{num_epochs}:{batch_index+1}/{len(train_loader)}] Time : {(t1-t0)*1e3:.1f} ms <Time> : {avg_iteration_time:.1f} ms\
-                        LOSS={iteration_loss:.2f} <LOSS>={avg_loss:.2f}")
+                        LOSS={iterration_loss:.2f} <LOSS>={avg_loss:.2f} \
+                        ACC={iteration_accuracy:.2f} <ACC>={avg_accuracy:.2f}")
+            
+            dynamics.append({
+                'epoch': epoch, 'batch_idx': batch_index, 'step': epoch * len(train_loader) + batch_index,
+                'learning_rate': lr, 'batch_size': len(labels),
+                'loss': iterration_loss, 'correct': iteration_accuracy, 'avg_loss': avg_loss, 'avg_correct': avg_accuracy,
+                'best_score': best_score, 'score': score,
+            })
+            
             torch.save(model.state_dict(), os.path.join(log_dir, "state.pkl"))
+            torch.save(dynamics, os.path.join(log_dir, "dynamics.pkl"))
             
         # Evaluate
-        if (epoch+1) % 3 == 0 or epoch == (num_epochs-1) or early_stop == 11:
+        if (epoch+1) % 3 == 0 or epoch == (num_epochs-1):
             if val_loader is not None:
                 ## Validation
-                val_loss, score = evaluate(val_loader)
-                if score>= best_score: #and val_loss <= best_val_loss:
-                    best_val_loss, best_score = val_loss, score
-                    early_stop = 0
+                score, val_loss = evaluate(val_loader)
+                if score > best_score or (score == best_score and val_loss <= best_val_loss):
+                    best_score = score
+                    best_val_loss = val_loss
                     torch.save(model.state_dict(), os.path.join(log_dir, "best_state.pkl"))
-                else:
-                    early_stop += 1
-
-                logger.info(f"\n\nLoss={val_loss:.2f} Best={best_val_loss:.2f} Score={score:.2f} Best={best_score:.2f}")                   
-                print(f'epoch {epoch+1}/{num_epochs} avg loss : {avg_loss:.4f} \t val loss : {val_loss:.4f} score : {score:.4f} \t best loss : {best_val_loss:.4f} best score : {best_score:.4f} {"*" if score==best_score else ""}')
-
-                if early_stop == 11:
-                   print(f"\n\nStopped at epoch {epoch+1}.\n")
-                   break
+            
+                logger.info(f"\n\nScore={score*100:.2f}% Best={best_score*100:.2f}%")                   
+                print(f'epoch {epoch+1}/{num_epochs} avg loss : {avg_loss:.4f} avg acc : {avg_accuracy*100:.2f} % score : {score*100 :.2f} % {"*" if score==best_score else ""}')
 
             else :
-                print(f'epoch {epoch+1}/{num_epochs} avg loss : {avg_loss:.4f}')
+                print(f'epoch {epoch+1}/{num_epochs} avg loss : {avg_loss:.4f} avg acc : {avg_accuracy*100:.2f} %')
                 
                 logger.info("\n\n")
             
         logger.info("\n\n")
+
+
 
     ########################################################################################################################
     ############################################### Test Function ##########################################################
@@ -188,72 +217,78 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
     def test(inputs, labels):
         inputs = inputs.to(device)
         labels = labels.to(device)
-  
-        with torch.no_grad():
-            outputs = model(inputs)
-            loss = criterion(outputs, labels).item()
-            probs = torch.softmax(outputs, dim=1)
 
-        return probs, loss
+        outputs = model(inputs)
+        _, predictions = torch.max(outputs, 1)
+
+        n_correct_classwise = torch.zeros(num_classes).to(device)
+        n_samples_classwise = torch.zeros(num_classes).to(device)
+
+        for truth, pred in zip(labels, predictions):
+            n_correct_classwise[truth] += truth == pred
+            n_samples_classwise[truth] += 1
+
+        accuracy_classwise = n_correct_classwise / n_samples_classwise
+
+        return n_correct_classwise, n_samples_classwise
+
 
     ###########################################################################################################################
     ################################################### Testing Loop ##########################################################
     ###########################################################################################################################
-    
-    total_loss = 0
-    model.eval()
-    metrics = Metrics(num_classes)
-    total_scores = torch.zeros(num_classes)
 
+    num_classes = model.network[-1].__dict__['out_features']
+    total_correct_class = torch.zeros(num_classes).to(device)
+    total_samples_class = torch.zeros(num_classes).to(device)
+
+    model.eval()
     if datasets['val'] is not None:
         model.load_state_dict(torch.load(os.path.join(model_path, 'log', 'best_state.pkl')))
     else:
         model.load_state_dict(torch.load(os.path.join(model_path, 'log', 'state.pkl')))
-    test_loader = torch.utils.data.DataLoader(datasets['test'], batch_size = batch_size, num_workers = num_workers)
+
+    if datasets['test'] is not None:
+        test_loader = torch.utils.data.DataLoader(datasets['test'], batch_size = batch_size, num_workers = num_workers)
     
     logger.info(f"\n\n\nTesting:\n")
 
-    save = bool(int(save))
-    if save:
-        run, config = os.path.split(os.getcwd())
-        run = os.path.basename(run)
-        f = h5py.File(os.path.join(log_dir, 'probs.hdf5'), 'w')
-        prob_dataset = None
- 
+    total_correct = 0
+    total_samples = 0
+    total_iteration_time = 0
     for batch_index, (inputs, labels) in enumerate(test_loader):
 
         t0 = time.time()
-        probs, current_loss = test(inputs, labels)
-        preds = torch.argmax(probs, dim=1)
+        n_correct_classwise, n_samples_classwise = test(inputs, labels)
+        acc = torch.sum(n_correct_classwise) / len(inputs)
+        total_correct += torch.sum(n_correct_classwise)
+        total_samples += len(inputs)
+        total_correct_class += n_correct_classwise
+        total_samples_class += n_samples_classwise
         t1 = time.time()
 
-        if save:
-            if prob_dataset is None:
-                 f.create_dataset('probs', (0, ) + probs.shape[1:], maxshape=(None,) +  probs.shape[1:], chunks=True)
-                 prob_dataset = f['probs']
+        total_iteration_time += (t1-t0)*1e3
+        avg_iteration_time = total_iteration_time / (batch_index + 1)
 
-            prob_dataset.resize((len(prob_dataset) + len(probs),) + probs_dataset.shape[1:])
-            prob_dataset[-len(outputs):] = probs.cpu()
+        logger.info(f'Test [{batch_index+1}/{len(test_loader)}] Time : {(t1-t0)*1e3:.1f} ms <Time> : {avg_iteration_time:.1f} ms \t ACC : {acc*100:.2f} % <ACC> : {total_correct*100/total_samples:.2f} %')
 
-        score = metrics.dice_per_class(preds, labels)
-        total_scores += score * len(inputs)
-        total_loss += current_loss * len(inputs)
+    total_accuracy = torch.sum(total_correct_class) / torch.sum(total_samples_class)
+    logger.info(f'\n\nOverall Accuracy = {total_accuracy.item() * 100:.2f} %\n')
 
-        logger.info(f'Test [{batch_index+1}/{len(test_loader)}] Time : {(t1-t0)*1e3:.1f} ms  Loss={current_loss:.2f} \t Score : {score}')
+    print(f'\n\nTesting Accuracy = {total_accuracy.item() * 100:.2f} %')
 
-    if save:   
-        f.close() 
-    avg_loss = total_loss / len(datasets['test'])
-    avg_dice = total_dice / len(datasets['test'])
-    logger.info(f'\n\nOverall Loss = {avg_loss:.4f}')
+    total_accuracy_class = total_correct_class / total_samples_class
+    for i in range(num_classes):
+        logger.info(f'Accuracy of class {i} {total_accuracy_class[i] * 100:.2f} %')
 
-    print(f'\n\nTesting Loss = {avg_loss:.4f}')
-    print(f"\nScore per class = {avg_dice}")
-    print(f"\nAvg Score = {torch.mean(avg_dice[1:]).item():.4f}")
+
+
+
+
 
 ############################################################################################################################
 ################################################### Argument Parser ########################################################
 ############################################################################################################################
+
 
 if __name__ == "__main__":
     import argparse
@@ -265,16 +300,18 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, required=True)
     parser.add_argument("--n_radius", type=int,required=True)
     parser.add_argument("--max_m", type=int, required=True)
+    parser.add_argument("--interpolation", type=int, required=True)
+    parser.add_argument("--restricted", type=int, required=True)
     parser.add_argument("--num_epochs", type=int, default=1)
     parser.add_argument("--num_workers", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.01)
     parser.add_argument("--weight_decay", type=float, default=0.001)
+    parser.add_argument("--restore", type=int, default = 0)
     parser.add_argument("--lr_decay_rate", type=float, default=0.5)
     parser.add_argument("--lr_decay_schedule", type=int, default=20)
-    parser.add_argument("--save", type=int, default=0)
 
     args = parser.parse_args()
     sys.path.append(args.__dict__['model_path'])
-    from model import Model, get_datasets, Loss
+    from model import Model, get_datasets
 
     main(**args.__dict__)
