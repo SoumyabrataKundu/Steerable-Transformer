@@ -4,20 +4,19 @@ import copy
 import sys
 import time
 import h5py
-
 import torch
-from Steerable.Segmentation.loss import SegmentationLoss
+
+from model import Model, get_datasets, Loss
 from Steerable.Segmentation.metrics import Metrics
 
-
-def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning_rate, weight_decay, num_epochs, num_workers, lr_decay_rate, lr_decay_schedule, save=0):
+def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, num_epochs, num_workers, lr_decay_rate, lr_decay_schedule, save=0):
    
  ################################################################################################################################### 
  ##################################################### Logging #####################################################################
  ###################################################################################################################################
     arguments = copy.deepcopy(locals())
     
-    log_dir = os.path.join(model_path, 'log/')
+    log_dir = os.path.join('log/')
     if not os.path.isdir(log_dir):
         os.mkdir(log_dir)
     
@@ -55,7 +54,7 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
          val_loader = torch.utils.data.DataLoader(dataset = datasets['val'], batch_size = batch_size, num_workers = num_workers)
     
     # Loss
-    criterion = Loss() 
+    criterion = Loss 
     
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr = 0, weight_decay = weight_decay)
@@ -108,8 +107,7 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
         
                 total_loss += loss * len(inputs)
                 preds = torch.argmax(outputs, dim=1)
-                metrics.confusion_matrix(preds, labels)
-                score = metrics.mDice()
+                score = metrics.mDice(preds, labels)
                 total_score += score * len(inputs)
                 num_inputs += len(inputs)
 
@@ -160,7 +158,7 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
             if val_loader is not None:
                 ## Validation
                 val_loss, score = evaluate(val_loader)
-                if score>= best_score: #and val_loss <= best_val_loss:
+                if score>= best_score:
                     best_val_loss, best_score = val_loss, score
                     early_stop = 0
                     torch.save(model.state_dict(), os.path.join(log_dir, "best_state.pkl"))
@@ -186,9 +184,6 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
     ########################################################################################################################
 
     def test(inputs, labels):
-        inputs = inputs.to(device)
-        labels = labels.to(device)
-  
         with torch.no_grad():
             outputs = model(inputs)
             loss = criterion(outputs, labels).item()
@@ -203,12 +198,12 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
     total_loss = 0
     model.eval()
     metrics = Metrics(num_classes)
-    total_scores = torch.zeros(num_classes)
+    total_score = torch.zeros(num_classes)
 
     if datasets['val'] is not None:
-        model.load_state_dict(torch.load(os.path.join(model_path, 'log', 'best_state.pkl')))
+        model.load_state_dict(torch.load(os.path.join('log', 'best_state.pkl')))
     else:
-        model.load_state_dict(torch.load(os.path.join(model_path, 'log', 'state.pkl')))
+        model.load_state_dict(torch.load(os.path.join('log', 'state.pkl')))
     test_loader = torch.utils.data.DataLoader(datasets['test'], batch_size = batch_size, num_workers = num_workers)
     
     logger.info(f"\n\n\nTesting:\n")
@@ -221,6 +216,9 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
         prob_dataset = None
  
     for batch_index, (inputs, labels) in enumerate(test_loader):
+
+        inputs = inputs.to(device)
+        labels = labels.to(device)
 
         t0 = time.time()
         probs, current_loss = test(inputs, labels)
@@ -235,21 +233,24 @@ def main(model_path, data_path, batch_size, n_radius, max_m, loss_type, learning
             prob_dataset.resize((len(prob_dataset) + len(probs),) + probs_dataset.shape[1:])
             prob_dataset[-len(outputs):] = probs.cpu()
 
+        metrics.add_to_confusion_matrix(preds, labels)
         score = metrics.dice_per_class(preds, labels)
-        total_scores += score * len(inputs)
+        total_score += score * len(inputs)
         total_loss += current_loss * len(inputs)
 
-        logger.info(f'Test [{batch_index+1}/{len(test_loader)}] Time : {(t1-t0)*1e3:.1f} ms  Loss={current_loss:.2f} \t Score : {score}')
+        logger.info(f'Test [{batch_index+1}/{len(test_loader)}] Time : {(t1-t0)*1e3:.1f} ms  Loss={current_loss:.2f} \t Score : {score} \t <Score> : {torch.mean(score[1:]).item():.4f}')
 
     if save:   
         f.close() 
     avg_loss = total_loss / len(datasets['test'])
-    avg_dice = total_dice / len(datasets['test'])
-    logger.info(f'\n\nOverall Loss = {avg_loss:.4f}')
+    avg_dice = total_score / len(datasets['test'])
 
     print(f'\n\nTesting Loss = {avg_loss:.4f}')
     print(f"\nScore per class = {avg_dice}")
-    print(f"\nAvg Score = {torch.mean(avg_dice[1:]).item():.4f}")
+    print(f"Avg Score = {torch.mean(avg_dice[1:]).item():.4f}")
+
+    print(f"\nGlobal Score per class = {metrics.dice_per_class()}")
+    print(f"Global Score = {metrics.mDice():.4f}")
 
 ############################################################################################################################
 ################################################### Argument Parser ########################################################
@@ -260,7 +261,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--model_path", type=str, required=True)
     parser.add_argument("--data_path", type=str, required=True)
     parser.add_argument("--batch_size", type=int, required=True)
     parser.add_argument("--n_radius", type=int,required=True)
@@ -274,7 +274,4 @@ if __name__ == "__main__":
     parser.add_argument("--save", type=int, default=0)
 
     args = parser.parse_args()
-    sys.path.append(args.__dict__['model_path'])
-    from model import Model, get_datasets, Loss
-
     main(**args.__dict__)

@@ -1,11 +1,12 @@
 import torch
-import torchvision
+import os
+import h5py
 
-
-#from SteerableSegmenter2D.conv_layers import *
-#from SteerableSegmenter2D.transformer_layers import SE2TransformerEncoder, SE2LinearDecoder
+import torch
 
 from Steerable.nn import *
+from Steerable.datasets.hdf5 import HDF5
+from Steerable.Segmentation.loss import SegmentationLoss
 
 class Model(torch.nn.Module):
     def __init__(self, n_radius, max_m) -> None:
@@ -35,9 +36,7 @@ class Model(torch.nn.Module):
 
         self.pool2 = SE3AvgPool(4)
 
-        self.encoder = SE3TransformerEncoder(encoder_dim, 4, n_layers = 2, add_pos_enc=False)
-        #self.decoder = SE3LinearDecoder(encoder_dim, decoder_dim)
-        #self.decoder = SE3TransformerDecoder(encoder_dim, 4, self.num_classes, n_layers=2, add_pos_enc=True)
+        self.encoder = SE3TransformerEncoder(encoder_dim, 4, n_layers = 2, add_pos_enc=True)
         
         self.convolution_head1 = nn.Sequential(
             SE3Conv(decoder_dim,[32,16,8],5, n_radius, n_theta, padding = 'same'),
@@ -53,7 +52,6 @@ class Model(torch.nn.Module):
 	    SE3Conv([8,4,2],self.num_classes,7, n_radius, n_theta, padding = 'same'),
         )
        
-        #self.embed = SE3ClassEmbedings(encoder_dim, [8,4,2])
         
     def forward(self, x):
         x_shape = x.shape
@@ -67,9 +65,6 @@ class Model(torch.nn.Module):
 
         # Encoder
         x = self.encoder(x)
-
-        # Decoder
-        #x,classes = self.decoder(x)
 
         # Upsampling
         x, channels = merge_channel_dim(x)
@@ -89,79 +84,20 @@ class Model(torch.nn.Module):
         x = x[0].squeeze(1)
         x = nn.functional.interpolate(x.real, size=x_shape[-3:], mode="trilinear") + \
                   1j * nn.functional.interpolate(x.imag, size=x_shape[-3:], mode="trilinear")
-        #x = split_channel_dim(x, channels=channels) 
-        #x = self.embed(x, classes)
         return x.abs()
 
 #######################################################################################################################
 ###################################################### Dataset ########################################################
 ####################################################################################################################### 
 
-
-
-import torch
-import os
-import torchvision.transforms as transforms
-import h5py
-
-class InterpolateToSize:
-    def __init__(self, size, mode='nearest-exact'):
-        self.size = size
-        self.mode = mode
-
-    def __call__(self, image):
-
-        if image.ndim - len(self.size)>=0 and image.ndim - len(self.size) <= 2:
-            resized_image = torch.nn.functional.interpolate(image.reshape(*[1]*(2 - image.ndim + len(self.size)), *image.shape).float(), size=self.size ,mode=self.mode)
-            resized_image = resized_image.reshape(*image.shape[:-3], *self.size)
-        else:
-            raise IndexError("")
-
-        return resized_image
-
-class Decathlon(torch.utils.data.Dataset):
-    def __init__(self, file, image_transform = None, target_transform = None) -> None:
-
-        self.mode = 'train'
-        self.file = file
-        self.image_transform = image_transform
-        self.target_transform = target_transform
-        self.n_samples = len(self.file[self.mode+'_targets'])
-
-    def __getitem__(self, index):
-        # Reading from file
-        input = torch.from_numpy(self.file[self.mode + '_inputs'][index]).float()
-        target = torch.tensor(self.file[self.mode + '_targets'][index]).long()
-
-        # Applying trasnformations
-        if self.image_transform is not None:
-            input = self.image_transform(input)
-
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-
-        return input, target.long()
-
-    def __len__(self):
-        return len(self.file[self.mode+'_targets'])
-
+Loss=SegmentationLoss(loss_type='Focal')
 
 def get_datasets(data_path):
     # Load the dataset
     data_file = h5py.File(os.path.join(data_path, 'Brain.hdf5'), 'r')
 
-    # Transformations
-    image_transform = transforms.Compose([
-        #InterpolateToSize((120,120,75), mode='trilinear'),
-        transforms.Normalize(mean=0, std = 1)
-        ])
-
-    target_transform = transforms.Compose([
-        InterpolateToSize((120,120,75), mode='nearest-exact'),
-        ])
-
     # Load datasets
-    datasets = Decathlon(data_file, image_transform=image_transform, target_transform=None)
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(datasets, [0.5, 0.2, 0.3])
+    datasets = HDF5(data_file)
+    train_dataset, val_dataset, test_dataset, _ = torch.utils.data.random_split(datasets, [0.05, 0.05, 0.05, 0.85])
 
     return {'train' : train_dataset, 'val' : val_dataset, 'test' : test_dataset}
