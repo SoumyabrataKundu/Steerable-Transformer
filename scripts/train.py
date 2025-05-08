@@ -243,14 +243,14 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     if save:   
         f.close() 
     avg_loss = total_loss / len(datasets['test'])
-    avg_dice = total_score / len(datasets['test'])
+    avg_score_per_class = total_score_per_class / len(datasets['test'])
+    avg_score = 
 
     print(f'\n\nTesting Loss = {avg_loss:.4f}')
-    print(f"\nScore per class = {avg_dice}")
+    print(f"\nScore per class = {avg_score}")
     print(f"Avg Score = {torch.mean(avg_dice[1:]).item():.4f}")
-
-    print(f"\nGlobal Score per class = {metrics.dice_per_class()}")
-    print(f"Global Score = {metrics.mDice():.4f}")
+    print(f"\nGlobal Score per class = {metrics.micro_per_class()}")
+    print(f"Global Score = {metrics.micro():.4f}")
 
 ############################################################################################################################
 ################################################### Argument Parser ########################################################
