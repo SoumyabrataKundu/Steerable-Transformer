@@ -19,4 +19,5 @@ python train.py --data_path="DATAPATH" --batch_size=BATCHSIZE --n_radius=RADIUS 
 
 end_time=`date +%s`
 runtime=$((end_time - start_time))
+echo
 echo Runtime = $((runtime / 3600))h $(((runtime % 3600) / 60))m

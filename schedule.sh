@@ -4,21 +4,20 @@
 runs=(1)
 datasets=("RMNIST")
 script="test"
+save=0
 
 # Model Hyperparameters
 radius=2
 theta=4
 batch_size=100
 epochs=3
-restore=0
-save=0
 
 # Job Parameters
 main_directory=$PWD
+data_path="${PWD}/../Data"
 jobs_done=0
 gpu=1
 MAX_CONCURRENT_JOBS=28
-data_path="/project2/risi/soumyabratakundu/Data"
 
 wait_for_jobs() {
     while [ $(squeue -u $USER | tail -n +2 | wc -l) -ge $MAX_CONCURRENT_JOBS ]; do
@@ -27,7 +26,6 @@ wait_for_jobs() {
 }
 
 trap 'echo "Script interrupted. Jobs submitted so far: $((${job_counter}-1))"; exit' SIGINT
-
 
 mkdir experiment_runs 2>/dev/null
 cd experiment_runs
@@ -52,24 +50,14 @@ do
             continue
         fi
 
- 
-        ## Training
+        ## Copy Files
         if [ ${script} == "train" ]; then
-            if [ ${restore} -eq 0 ]; then
-                    mkdir Steerable 2>/dev/null
-                    mkdir Steerable/datasets/ 2>/dev/null
-                    cp -r ${main_directory}/../Steerable/Steerable/nn/ Steerable/
-                    cp -r ${main_directory}/../Steerable/Steerable/Segmentation/ Steerable/
-                    cp ${main_directory}/../Steerable/Steerable/datasets/hdf5.py Steerable/datasets/
-                    cp ${main_directory}/datasets/${data}/model.py ./
-            fi
+            cp -r ${main_directory}/../Steerable/ ./
         fi
-
-
         cp ${main_directory}/scripts/${script}.sh ./ 2>/dev/null
         cp ${main_directory}/scripts/${script}.py ./ 2>/dev/null
     
-        ## Modify script file
+        ## Modify script
         sed -i "s/GPU/${gpu}/g" ${script}.sh
         sed -i "s/RUN/${run}/g" ${script}.sh
         sed -i "s/DATASET/${data:0:1}/g" ${script}.sh
@@ -79,7 +67,6 @@ do
         sed -i "s#DATAPATH#${data_path}/${data}/data#g" ${script}.sh
         sed -i "s/BATCHSIZE/${batch_size}/g" ${script}.sh
         sed -i "s/EPOCHS/${epochs}/g" ${script}.sh
-        sed -i "s/RESTORE/${restore}/g" ${script}.sh
         sed -i "s/SAVE/${save}/g" ${script}.sh
 
         wait_for_jobs
