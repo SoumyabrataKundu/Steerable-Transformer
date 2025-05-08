@@ -4,6 +4,7 @@
 runs=(1)
 datasets=("RMNIST")
 script="test"
+metric_type="dice"
 save=0
 
 # Model Hyperparameters
@@ -67,7 +68,9 @@ do
         sed -i "s#DATAPATH#${data_path}/${data}/data#g" ${script}.sh
         sed -i "s/BATCHSIZE/${batch_size}/g" ${script}.sh
         sed -i "s/EPOCHS/${epochs}/g" ${script}.sh
+        sed -i "s/METRICTYPE/${metric_type}/g" ${script}.sh
         sed -i "s/SAVE/${save}/g" ${script}.sh
+        
 
         wait_for_jobs
 
