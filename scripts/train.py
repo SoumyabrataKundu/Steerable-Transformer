@@ -124,8 +124,10 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     #####################################################################################################################################
 
     epoch, early_stop, early_stop_after, best_val_loss, best_score = 0, 0, 11, float('inf'), 0
-    
-    logger.info(f"\n\n\nTraining:\n")
+   
+    if num_epochs>0: 
+        logger.info(f"\n\n\nTraining:\n")
+
     for epoch in range(epoch, num_epochs):
         lr = get_learning_rate(epoch)
         logger.info(f"learning rate = {lr}, weight decay = {weight_decay}, batch size = {train_loader.batch_size}")
@@ -150,8 +152,9 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
             avg_loss = total_iteration_loss / (batch_index+1)
 
             ## Logging
-            logger.info(f"[{epoch+1}/{num_epochs}:{batch_index+1}/{len(train_loader)}] Time : {(t1-t0)*1e3:.1f} ms <Time> : {avg_iteration_time:.1f} ms\
-                        LOSS={iteration_loss:.2f} <LOSS>={avg_loss:.2f}")
+            logger.info(f"[{epoch+1}/{num_epochs}:{batch_index+1}/{len(train_loader)}] "
+                        f"Time : {(t1-t0)*1e3:.1f} ms <Time> : {avg_iteration_time:.1f} ms\t"
+                        f"LOSS={iteration_loss:.2f} <LOSS>={avg_loss:.2f}")
             torch.save(model.state_dict(), os.path.join(log_dir, "state.pkl"))
             
         # Evaluate
@@ -166,7 +169,8 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
                 else:
                     early_stop += 1
 
-                logger.info(f"\n\nLoss={val_loss:.2f} Best={best_val_loss:.2f} Score={score:.2f} Best={best_score:.2f}")                   
+                ## Logging
+                logger.info(f"\n\nLoss={val_loss:.4f} Best={best_val_loss:.4f} Score={score:.4f} Best={best_score:.4f}")
                 print(f'epoch {epoch+1}/{num_epochs} '
                       f'avg loss : {avg_loss:.4f} val loss : {val_loss:.4f} score : {score:.4f}\t'
                       f'best loss : {best_val_loss:.4f} best score : {best_score:.4f} {"*" if score==best_score else ""}')

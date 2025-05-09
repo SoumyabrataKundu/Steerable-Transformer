@@ -1,22 +1,17 @@
 import os
-import sys
 import h5py
-
 import torch
-import torch.nn as nn
-import torchvision
-import torchvision.transforms as transforms
 
 import Steerable.nn as snn
 from Steerable.utils.hdf5 import HDF5
 
-class Model(nn.Module):
+class Model(torch.nn.Module):
     def __init__(self, n_radius, max_m) -> None:
         super(Model, self).__init__()
         n_theta = 40
         self.num_classes = 10
 
-        self.network = nn.Sequential(
+        self.network = torch.nn.Sequential(
             snn.SE2ConvType1(1,  24, 5, n_radius, n_theta, max_m, padding='same'),
             snn.SE2BatchNorm(), 
             snn.SE2CGNonLinearity(max_m),
@@ -36,7 +31,6 @@ class Model(nn.Module):
             snn.SE2AvgPool(2),
 
             snn.SE2ConvType2(96, 64, 7, n_radius, n_theta, max_m),
-            snn.SE2BatchNorm(),
 
             snn.SE2NormFlatten(),
             torch.nn.Linear(64, 128),

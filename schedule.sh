@@ -9,7 +9,7 @@ save=0
 
 # Model Hyperparameters
 radius=2
-theta=4
+theta=8
 batch_size=100
 epochs=3
 
