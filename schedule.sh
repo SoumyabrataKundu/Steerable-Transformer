@@ -70,7 +70,6 @@ do
         sed -i "s/EPOCHS/${epochs}/g" ${script}.sh
         sed -i "s/METRICTYPE/${metric_type}/g" ${script}.sh
         sed -i "s/SAVE/${save}/g" ${script}.sh
-        
 
         wait_for_jobs
 
@@ -83,4 +82,3 @@ do
 done
 
 echo "All jobs Submitted!"
-
