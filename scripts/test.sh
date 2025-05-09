@@ -15,7 +15,7 @@ source activate /home/soumyabratakundu/.conda/envs/conda_env
 
 start_time=`date +%s`
 
-python train.py --data_path="DATAPATH" --batch_size=BATCHSIZE --n_radius=RADIUS --max_m=THETA --learning_rate=0.005 --weight_decay=0.0005 --num_epochs=0 --lr_decay_rate=0.5 --lr_decay_schedule=20
+python train.py --data_path="DATAPATH" --batch_size=BATCHSIZE --n_radius=RADIUS --max_m=THETA --num_epochs=0 --metric_type=METRICTYPE --save=SAVE
 
 end_time=`date +%s`
 runtime=$((end_time - start_time))

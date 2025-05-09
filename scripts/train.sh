@@ -2,8 +2,8 @@
 
 
 #SBATCH --job-name=RUNDATASETrRADIUSkTHETA
-#SBATCH --output=output
-#SBATCH --error=error
+#SBATCH --output=output.train
+#SBATCH --error=error.train
 #SBATCH --account=pi-risi
 #SBATCH --partition=gm4
 #SBATCH --nodes=1

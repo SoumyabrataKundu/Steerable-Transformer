@@ -27,9 +27,12 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     fh = logging.FileHandler(os.path.join(log_dir, "log.txt"), mode = "w")
     logger.addHandler(fh)
 
-    logger.info("%s", repr(arguments))
+    if num_epochs>0:
+        logger.info("%s", repr(arguments))
+    else:
+        logger.info("%s", repr({k: v for k, v in arguments.items() 
+                                     if k not in {'learning_rate', 'weight_decay', 'num_epochs', 'lr_decay_rate', 'lr_decay_schedule'}}))
     logger.info("\n\n")
-    
     
     #####################################################################################################################################
     ############################################ Loading Model, Datasets, Loss and Optimizer ############################################
@@ -125,8 +128,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
 
     epoch, early_stop, early_stop_after, best_val_loss, best_score = 0, 0, 11, float('inf'), 0
    
-    if num_epochs>0: 
-        logger.info(f"\n\n\nTraining:\n")
+    logger.info(f"\n\n\nTraining:\n")
 
     for epoch in range(epoch, num_epochs):
         lr = get_learning_rate(epoch)
@@ -268,10 +270,10 @@ if __name__ == "__main__":
     parser.add_argument("--max_m", type=int, required=True)
     parser.add_argument("--num_epochs", type=int, default=1)
     parser.add_argument("--num_workers", type=int, default=1)
-    parser.add_argument("--learning_rate", type=float, default=0.01)
-    parser.add_argument("--weight_decay", type=float, default=0.001)
-    parser.add_argument("--lr_decay_rate", type=float, default=0.5)
-    parser.add_argument("--lr_decay_schedule", type=int, default=20)
+    parser.add_argument("--learning_rate", type=float, default=0.0)
+    parser.add_argument("--weight_decay", type=float, default=0.0)
+    parser.add_argument("--lr_decay_rate", type=float, default=0.0)
+    parser.add_argument("--lr_decay_schedule", type=int, default=1)
     parser.add_argument("--metric_type", type=str, default='dice')
     parser.add_argument("--save", type=int, default=0)
 
