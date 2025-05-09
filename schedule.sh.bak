@@ -3,8 +3,8 @@
 # Experiment
 runs=(1)
 datasets=("RMNIST")
-script="train"
-metric_type="accuracy"
+script="test"
+metric_type="dice"
 save=0
 
 # Model Hyperparameters
@@ -53,8 +53,7 @@ do
 
         ## Copy Files
         if [ ${script} == "train" ]; then
-            cp -r ${main_directory}/../Steerable/Steerable/ ./
-            cp ${main_directory}/datasets/${data}/model.py ./
+            cp -r ${main_directory}/../Steerable/ ./
         fi
         cp ${main_directory}/scripts/${script}.sh ./ 2>/dev/null
         cp ${main_directory}/scripts/${script}.py ./ 2>/dev/null
@@ -83,4 +82,3 @@ do
 done
 
 echo "All jobs Submitted!"
-

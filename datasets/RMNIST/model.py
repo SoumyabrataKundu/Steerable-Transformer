@@ -8,7 +8,7 @@ import torchvision
 import torchvision.transforms as transforms
 
 import Steerable.nn as snn
-from Steerable.datasets.hdf5 import HDF5
+from Steerable.utils.hdf5 import HDF5
 
 class Model(nn.Module):
     def __init__(self, n_radius, max_m) -> None:
@@ -38,7 +38,7 @@ class Model(nn.Module):
             snn.SE2ConvType2(96, 64, 7, n_radius, n_theta, max_m),
             snn.SE2BatchNorm(),
 
-            snn.SE2Pooling(),
+            snn.SE2NormFlatten(),
             torch.nn.Linear(64, 128),
             torch.nn.BatchNorm1d(128),
             torch.nn.ELU(),

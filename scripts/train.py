@@ -193,7 +193,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
 
     # Metrics
     metrics = Metrics(num_classes, metric_type)
-    total_loss, total_score, total_score_per_class = 0, 0, torch.zeros(num_classes)
+    total_loss, total_score, total_score_per_class, num_inputs = 0, 0, torch.zeros(num_classes), 0
 
     # Saving
     save = bool(int(save))
