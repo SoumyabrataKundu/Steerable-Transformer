@@ -58,7 +58,7 @@ do
         cp ${main_directory}/scripts/${script}.sh ./ 2>/dev/null
         cp ${main_directory}/scripts/${script}.py ./ 2>/dev/null
     
-        ## Modify script
+        ## Modify Script
         sed -i "s/GPU/${gpu}/g" ${script}.sh
         sed -i "s/RUN/${run}/g" ${script}.sh
         sed -i "s/DATASET/${data:0:1}/g" ${script}.sh
