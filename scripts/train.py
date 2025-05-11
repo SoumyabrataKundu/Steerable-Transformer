@@ -105,7 +105,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
             # Logging
             logger.info(f"Validation [{batch_idx+1}/{len(val_loader)}] "
                         f"Time : {(t1-t0)*1e3:.1f} ms Loss : {loss:.2f} "
-                        f"Score : {score:.4f} <Score> : {total_score / num_inputs:.4f}")
+                        f"{metric_type.capitalize()} : {score:.4f} <{metric_type.capitalize()}> : {total_score / num_inputs:.4f}")
             
         return total_loss / len(datasets['val']), total_score / len(datasets['val'])
     
@@ -172,7 +172,8 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
                     early_stop += 1
 
                 ## Logging
-                logger.info(f"\n\nLoss={val_loss:.4f} Best={best_val_loss:.4f} Score={score:.4f} Best={best_score:.4f}")
+                logger.info(f"\n\nLoss={val_loss:.4f} Best Loss={best_val_loss:.4f}"
+                            f"{metric_type.capitalize()}={score:.4f} Best {metric_type.capitalize()}={best_score:.4f}")
                 print(f'epoch {epoch+1}/{num_epochs} '
                       f'avg loss : {avg_loss:.4f} val loss : {val_loss:.4f} score : {score:.4f}\t'
                       f'best loss : {best_val_loss:.4f} best score : {best_score:.4f} {"*" if score==best_score else ""}')
@@ -235,7 +236,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
 
         logger.info(f'Test [{batch_index+1}/{len(test_loader)}] '
                     f'Time : {(t1-t0)*1e3:.1f} ms  Loss={current_loss:.2f}\t'
-                    f'Score : {score_per_class} <Score> : {total_score / num_inputs:.4f}')
+                    f'{metric_type.capitalize()} : {score_per_class} <{metric_type.capitalize()}> : {total_score / num_inputs:.4f}')
 
     if save:   
         f.close()
@@ -245,16 +246,16 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     avg_score = total_score / len(datasets['test'])
 
     logger.info(f'\n\nTesting Loss = {avg_loss:.4f}')
-    logger.info(f"\nScore per class = {avg_score_per_class}")
-    logger.info(f"Avg Score = {avg_score:.4f}")
-    logger.info(f"\nGlobal Score per class = {metrics.micro_per_class()}")
-    logger.info(f"Global Score = {metrics.micro():.4f}")
+    logger.info(f"\nMacro {metric_type.capitalize()} per class = {avg_score_per_class}")
+    logger.info(f"Macro {metric_type.capitalize()} = {avg_score:.4f}")
+    logger.info(f"\nMicro {metric_type.capitalize()} per class = {metrics.micro_per_class()}")
+    logger.info(f"Micro {metric_type.capitalize()} = {metrics.micro():.4f}")
 
     print(f'\n\nTesting Loss = {avg_loss:.4f}')
-    print(f"\nScore per class = {avg_score_per_class}")
-    print(f"Avg Score = {avg_score:.4f}")
-    print(f"\nGlobal Score per class = {metrics.micro_per_class()}")
-    print(f"Global Score = {metrics.micro():.4f}")
+    print(f"\nMacro{metric_type.capitalize()} per class = {avg_score_per_class}")
+    print(f"Macro {metric_type.capitalize()} = {avg_score:.4f}")
+    print(f"\nMicro {metric_type.capitalize()} per class = {metrics.micro_per_class()}")
+    print(f"Micro {metric_type.capitalize()} = {metrics.micro():.4f}")
 
 #####################################################################################################################################
 ########################################################## Argument Parser ##########################################################
