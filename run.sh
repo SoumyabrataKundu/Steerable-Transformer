@@ -3,7 +3,7 @@
 # Experiment
 runs=(1)
 datasets=("RMNIST")
-script="train"
+script="test"
 metric_type="accuracy"
 save=0
 
