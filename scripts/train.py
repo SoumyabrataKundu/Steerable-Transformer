@@ -172,7 +172,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
                     early_stop += 1
 
                 ## Logging
-                logger.info(f"\n\nLoss={val_loss:.4f} Best Loss={best_val_loss:.4f}"
+                logger.info(f"\n\nLoss={val_loss:.4f} Best Loss={best_val_loss:.4f} "
                             f"{metric_type.capitalize()}={score:.4f} Best {metric_type.capitalize()}={best_score:.4f}")
                 print(f'epoch {epoch+1}/{num_epochs} '
                       f'avg loss : {avg_loss:.4f} val loss : {val_loss:.4f} score : {score:.4f}\t'
@@ -275,7 +275,7 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=0.0)
     parser.add_argument("--lr_decay_rate", type=float, default=0.0)
     parser.add_argument("--lr_decay_schedule", type=int, default=1)
-    parser.add_argument("--metric_type", type=str, default='dice')
+    parser.add_argument("--metric_type", type=str, required=True)
     parser.add_argument("--save", type=int, default=0)
 
     args = parser.parse_args()

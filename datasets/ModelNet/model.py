@@ -81,9 +81,6 @@ class AddGaussianNoise:
     def __call__(self, tensor: torch.Tensor):
         return tensor + (torch.randn_like(tensor) * self.sd)
 
-
-
-
 def get_datasets(data_path, noise=0):
 
     # Transformations
