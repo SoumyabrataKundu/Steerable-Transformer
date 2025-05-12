@@ -110,7 +110,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
                         f"Time : {(t1-t0)*1e3:.1f} ms Loss : {loss:.2f} "
                         f"{metric_type.capitalize()} : {score:.4f} <{metric_type.capitalize()}> : {total_score / num_inputs:.4f}")
             
-        return total_loss / len(datasets['val']), total_score / len(datasets['val'])
+        return total_loss / len(datasets['val']), metrics.micro()
     
     def test_step(inputs, labels):
         model.eval()
