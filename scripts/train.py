@@ -99,6 +99,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
                 # Metrics
                 loss = criterion(outputs, labels)
                 preds = torch.argmax(outputs, dim=1)
+                metrics.add_to_confusion_matrix(preds, labels)
                 score = metrics.macro(preds, labels)
     
                 total_loss += loss * len(inputs)
