@@ -6,12 +6,12 @@ import h5py
 import torch
 
 from model import Model, get_datasets, Loss
-import Steerable.utils.Metrics as Metrics
+from Steerable.utils import Metrics
 
 def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, num_epochs, num_workers, lr_decay_rate, lr_decay_schedule, metric_type, save=0):
-    #####################################################################################################################################
-    ############################################################## Logging ##############################################################
-    #####################################################################################################################################
+    #################################################################################################################################
+    ########################################################## Logging ##############################################################
+    #################################################################################################################################
     arguments = copy.deepcopy(locals())
     
     log_dir = os.path.join('log/')
@@ -31,12 +31,13 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
         logger.info("%s", repr(arguments))
     else:
         logger.info("%s", repr({k: v for k, v in arguments.items() 
-                                     if k not in {'learning_rate', 'weight_decay', 'num_epochs', 'lr_decay_rate', 'lr_decay_schedule'}}))
+                                     if k not in {'learning_rate', 'weight_decay', 'num_epochs', 
+                                                  'lr_decay_rate', 'lr_decay_schedule'}}))
     logger.info("\n\n")
     
-    #####################################################################################################################################
-    ############################################ Loading Model, Datasets, Loss and Optimizer ############################################
-    #####################################################################################################################################
+    #################################################################################################################################
+    ########################################## Loading Model, Datasets, Loss and Optimizer ##########################################
+    #################################################################################################################################
     
     # Load the model
     model = Model(n_radius, max_m)
@@ -47,20 +48,20 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     
     # DataLoader
     datasets = get_datasets(data_path)
-    train_loader = torch.utils.data.DataLoader(dataset = datasets['train'], batch_size = batch_size, shuffle = True, num_workers = num_workers)
+    train_loader = torch.utils.data.DataLoader(dataset=datasets['train'], batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = None
     if datasets['val'] is not None:
-         val_loader = torch.utils.data.DataLoader(dataset = datasets['val'], batch_size = batch_size, num_workers = num_workers)
-         
+         val_loader = torch.utils.data.DataLoader(dataset=datasets['val'], batch_size=batch_size, num_workers=num_workers)
+
     # Loss and Optimizer
-    criterion = Loss 
+    criterion = Loss
     optimizer = torch.optim.Adam(model.parameters(), lr = 0, weight_decay = weight_decay)
     def get_learning_rate(epoch):
         return learning_rate * (lr_decay_rate ** (epoch // lr_decay_schedule))
 
-    #####################################################################################################################################
-    ################################################### Train, Eval and Test Functions ##################################################
-    #####################################################################################################################################
+    #################################################################################################################################
+    ################################################# Train, Eval and Test Functions ################################################
+    #################################################################################################################################
     
     def train_step(inputs, labels):
         model.train()
@@ -90,17 +91,19 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
             inputs, labels = inputs.to(device), labels.to(device)
             
             with torch.no_grad():
+                # Forward Pass
                 t0 = time.time()
                 outputs = model(inputs)
                 t1 = time.time()
                 
+                # Metrics
                 loss = criterion(outputs, labels)
                 preds = torch.argmax(outputs, dim=1)
                 score = metrics.macro(preds, labels)
     
-            total_loss += loss * len(inputs)
-            total_score += score * len(inputs)
-            num_inputs += len(inputs)
+                total_loss += loss * len(inputs)
+                total_score += score * len(inputs)
+                num_inputs += len(inputs)
 
             # Logging
             logger.info(f"Validation [{batch_idx+1}/{len(val_loader)}] "
@@ -111,25 +114,27 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     
     def test_step(inputs, labels):
         model.eval()
-        
-        inputs = inputs.to(device)
-        labels = labels.to(device)
-        
+
+        # Pushing to GPU        
+        inputs, labels = inputs.to(device),  labels.to(device)
+
         with torch.no_grad():
+            # Foward Pass
             outputs = model(inputs)
             loss = criterion(outputs, labels).item()
             probs = torch.softmax(outputs, dim=1)
 
         return probs, loss
     
-    #####################################################################################################################################
-    ########################################################### Training Loop ###########################################################
-    #####################################################################################################################################
+    #################################################################################################################################
+    ######################################################### Training Loop #########################################################
+    #################################################################################################################################
 
+    # Metric
     epoch, early_stop, early_stop_after, best_val_loss, best_score = 0, 0, 11, float('inf'), 0
    
+    # Training
     logger.info(f"\n\n\nTraining:\n")
-
     for epoch in range(epoch, num_epochs):
         lr = get_learning_rate(epoch)
         logger.info(f"learning rate = {lr}, weight decay = {weight_decay}, batch size = {train_loader.batch_size}")
@@ -183,13 +188,12 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
                    break
             else :
                 print(f'epoch {epoch+1}/{num_epochs} avg loss : {avg_loss:.4f}')
-                logger.info("\n\n")
             
         logger.info("\n\n")
 
-    #####################################################################################################################################
-    ########################################################### Testing Loop ############################################################
-    #####################################################################################################################################
+    #################################################################################################################################
+    ######################################################### Testing Loop ##########################################################
+    #################################################################################################################################
     
     # Loading Best Model
     if datasets['val'] is not None:
@@ -241,6 +245,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     if save:   
         f.close()
         
+    # Logging
     avg_loss = total_loss / len(datasets['test'])
     avg_score_per_class = total_score_per_class / len(datasets['test'])
     avg_score = total_score / len(datasets['test'])
@@ -257,9 +262,10 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     print(f"\nMicro {metric_type.capitalize()} per class = {metrics.micro_per_class()}")
     print(f"Micro {metric_type.capitalize()} = {metrics.micro():.4f}")
 
-#####################################################################################################################################
-########################################################## Argument Parser ##########################################################
-#####################################################################################################################################
+#################################################################################################################################
+######################################################## Argument Parser ########################################################
+#################################################################################################################################
+
 if __name__ == "__main__":
     import argparse
 
