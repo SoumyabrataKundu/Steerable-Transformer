@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-#SBATCH --job-name=RUNDATASETrRADIUSkTHETA
+#SBATCH --job-name=TeRUN-DATASET
 #SBATCH --output=output.test
 #SBATCH --error=error.test
 #SBATCH --account=pi-risi

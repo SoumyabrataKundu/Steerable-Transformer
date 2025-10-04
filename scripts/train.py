@@ -1,14 +1,14 @@
 import os
-import logging
 import copy
 import time
 import h5py
+import logging
+
 import torch
+from model import Model, get_datasets
+from Steerable.utils import Metrics, FocalLoss
 
-from model import Model, get_datasets, Loss
-from Steerable.utils import Metrics
-
-def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, num_epochs, num_workers, lr_decay_rate, lr_decay_schedule, metric_type, save=0):
+def main(data_path, batch_size, rotate, learning_rate, weight_decay, num_epochs, num_workers, lr_decay_rate, lr_decay_schedule, metric_type, save=0):
     #################################################################################################################################
     ########################################################## Logging ##############################################################
     #################################################################################################################################
@@ -39,25 +39,26 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     ########################################## Loading Model, Datasets, Loss and Optimizer ##########################################
     #################################################################################################################################
     
-    # Load the model
-    model = Model(n_radius, max_m)
-    num_classes = model.num_classes
-    device = torch.device("cuda")
-    model = model.to(device)
-    logger.info("{} paramerters in total".format(sum(x.numel() for x in model.parameters())))
-    
     # DataLoader
-    datasets = get_datasets(data_path)
+    datasets = get_datasets(data_path, rotate=bool(rotate))
     train_loader = torch.utils.data.DataLoader(dataset=datasets['train'], batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = None
     if datasets['val'] is not None:
          val_loader = torch.utils.data.DataLoader(dataset=datasets['val'], batch_size=batch_size, num_workers=num_workers)
 
-    # Loss and Optimizer
-    criterion = Loss
+    # Load the model
+    model = Model()
+    num_classes = model.num_classes
+    device = torch.device("cuda")
+    model = model.to(device)
+    model(datasets['train'][0][0].unsqueeze(0).to(device))
+    logger.info("{} paramerters in total".format(sum(x.numel() for x in model.parameters())))        
+
+    # Optimizer
+    criterion = FocalLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr = 0, weight_decay = weight_decay)
     def get_learning_rate(epoch):
-        return learning_rate * (lr_decay_rate ** (epoch // lr_decay_schedule))
+        return learning_rate * (lr_decay_rate ** (epoch / lr_decay_schedule))
 
     #################################################################################################################################
     ################################################# Train, Eval and Test Functions ################################################
@@ -82,6 +83,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
 
     def eval():
         model.eval()
+
         metrics = Metrics(num_classes, metric_type)
         total_loss, total_score, num_inputs = 0, 0, 0
         
@@ -89,8 +91,8 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
         for batch_idx, (inputs, labels) in enumerate(val_loader):
             # Pushing to GPU
             inputs, labels = inputs.to(device), labels.to(device)
-            
             with torch.no_grad():
+
                 # Forward Pass
                 t0 = time.time()
                 outputs = model(inputs)
@@ -99,8 +101,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
                 # Metrics
                 loss = criterion(outputs, labels)
                 preds = torch.argmax(outputs, dim=1)
-                metrics.add_to_confusion_matrix(preds, labels)
-                score = metrics.macro(preds, labels)
+                score = metrics.macro_per_class(preds, labels)[1:].mean().item()
     
                 total_loss += loss * len(inputs)
                 total_score += score * len(inputs)
@@ -111,7 +112,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
                         f"Time : {(t1-t0)*1e3:.1f} ms Loss : {loss:.2f} "
                         f"{metric_type.capitalize()} : {score:.4f} <{metric_type.capitalize()}> : {total_score / num_inputs:.4f}")
             
-        return total_loss / len(datasets['val']), metrics.micro()
+        return total_loss / len(datasets['val']), total_score / len(datasets['val'])
     
     def test_step(inputs, labels):
         model.eval()
@@ -132,13 +133,13 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
     #################################################################################################################################
 
     # Metric
-    epoch, early_stop, early_stop_after, best_val_loss, best_score = 0, 0, 11, float('inf'), 0
+    epoch, early_stop, early_stop_after, best_val_loss, best_score = 0, 0, 300, float('inf'), 0
    
     # Training
     logger.info(f"\n\n\nTraining:\n")
     for epoch in range(epoch, num_epochs):
         lr = get_learning_rate(epoch)
-        logger.info(f"learning rate = {lr}, weight decay = {weight_decay}, batch size = {train_loader.batch_size}")
+        logger.info(f"learning rate = {lr:.2e}, weight decay = {weight_decay}, batch size = {train_loader.batch_size}")
         for p in optimizer.param_groups:
             p['lr'] = lr
         
@@ -166,7 +167,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
             torch.save(model.state_dict(), os.path.join(log_dir, "state.pkl"))
             
         # Evaluate
-        if (epoch+1) % 3 == 0 or epoch == (num_epochs-1) or early_stop == early_stop_after:
+        if (epoch+1) % 1 == 0 or epoch == (num_epochs-1) or early_stop == early_stop_after:
             if val_loader is not None:
                 ## Validation
                 val_loss, score = eval()
@@ -181,8 +182,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
                 logger.info(f"\n\nLoss={val_loss:.4f} Best Loss={best_val_loss:.4f} "
                             f"{metric_type.capitalize()}={score:.4f} Best {metric_type.capitalize()}={best_score:.4f}")
                 print(f'epoch {epoch+1}/{num_epochs} '
-                      f'avg loss : {avg_loss:.4f} val loss : {val_loss:.4f} score : {score:.4f}\t'
-                      f'best loss : {best_val_loss:.4f} best score : {best_score:.4f} {"*" if score==best_score else ""}')
+                      f'avg loss : {avg_loss:.4f} val loss : {val_loss:.4f} score : {score:.4f} {"*" if score==best_score else ""}')
 
                 if early_stop == early_stop_after:
                    print(f"\n\nStopped at epoch {epoch+1}.\n")
@@ -224,7 +224,7 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
         preds = torch.argmax(probs, dim=1).detach().cpu()
         metrics.add_to_confusion_matrix(preds, labels)
         score_per_class = metrics.macro_per_class(preds, labels)
-        score = metrics.macro(preds, labels)
+        score = score_per_class[1:].mean().item()
         
         total_score_per_class += score_per_class * len(inputs)
         total_score += score * len(inputs)
@@ -245,23 +245,26 @@ def main(data_path, batch_size, n_radius, max_m, learning_rate, weight_decay, nu
 
     if save:   
         f.close()
-        
-    # Logging
+       
+    # Logging 
     avg_loss = total_loss / len(datasets['test'])
-    avg_score_per_class = total_score_per_class / len(datasets['test'])
-    avg_score = total_score / len(datasets['test'])
+    macro_score_per_class = total_score_per_class / len(datasets['test'])
+    macro_score = total_score / len(datasets['test'])
+    micro_score_per_class = metrics.micro_per_class()
+    micro_score = micro_score_per_class[1:].mean().item()
+    
 
     logger.info(f'\n\nTesting Loss = {avg_loss:.4f}')
-    logger.info(f"\nMacro {metric_type.capitalize()} per class = {avg_score_per_class}")
-    logger.info(f"Macro {metric_type.capitalize()} = {avg_score:.4f}")
-    logger.info(f"\nMicro {metric_type.capitalize()} per class = {metrics.micro_per_class()}")
-    logger.info(f"Micro {metric_type.capitalize()} = {metrics.micro():.4f}")
+    logger.info(f"\nMacro {metric_type.capitalize()} per class = {macro_score_per_class}")
+    logger.info(f"Macro {metric_type.capitalize()} = {macro_score:.4f}")
+    logger.info(f"\nMicro {metric_type.capitalize()} per class = {micro_score_per_class}")
+    logger.info(f"Micro {metric_type.capitalize()} = {micro_score:.4f}")
 
     print(f'\n\nTesting Loss = {avg_loss:.4f}')
-    print(f"\nMacro{metric_type.capitalize()} per class = {avg_score_per_class}")
-    print(f"Macro {metric_type.capitalize()} = {avg_score:.4f}")
-    print(f"\nMicro {metric_type.capitalize()} per class = {metrics.micro_per_class()}")
-    print(f"Micro {metric_type.capitalize()} = {metrics.micro():.4f}")
+    print(f"\nMacro {metric_type.capitalize()} per class = {macro_score_per_class}")
+    print(f"Macro {metric_type.capitalize()} = {macro_score:.4f}")
+    print(f"\nMicro {metric_type.capitalize()} per class = {micro_score_per_class}")
+    print(f"Micro {metric_type.capitalize()} = {micro_score:.4f}")
 
 #################################################################################################################################
 ######################################################## Argument Parser ########################################################
@@ -274,8 +277,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--data_path", type=str, required=True)
     parser.add_argument("--batch_size", type=int, required=True)
-    parser.add_argument("--n_radius", type=int,required=True)
-    parser.add_argument("--max_m", type=int, required=True)
+    parser.add_argument("--rotate", type=int, required=True)
     parser.add_argument("--num_epochs", type=int, default=1)
     parser.add_argument("--num_workers", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.0)

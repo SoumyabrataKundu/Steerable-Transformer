@@ -1,23 +1,22 @@
 #!/bin/bash
 
 # Experiment
-runs=(1)
-datasets=("RMNIST")
-script="train"
-metric_type="accuracy"
-save=0
+models=(0 1 2 3)
+runs=(1) 
+datasets=("PH2")
+rotate=(0)
+script="aug"
+metric_type="dice"
+save=1
 
 # Model Hyperparameters
-radius=2
-theta=8
-batch_size=100
-epochs=3
+batch_size=3
+epochs=100
 
 # Job Parameters
 main_directory=$PWD
-data_path="${PWD}/../Data"
-jobs_done=0
-gpu=1
+data_path="/project2/risi/soumyabratakundu/Data"
+jobs_done=3
 MAX_CONCURRENT_JOBS=28
 
 wait_for_jobs() {
@@ -26,12 +25,16 @@ wait_for_jobs() {
     done
 }
 
-trap 'echo "Script interrupted. Jobs submitted so far: $((${job_counter}-1))"; exit' SIGINT
+on_interrupt() {
+    echo Script interrupted. Jobs submitted so far: $((job_counter-1)) / $total_jobs"."
+    exit
+}
+stty -echoctl
+trap on_interrupt SIGINT
 
-mkdir experiment_runs 2>/dev/null
-cd experiment_runs
+mkdir final_runs 2>/dev/null
+cd final_runs
 
-echo Jobs Submitted = ${jobs_done}
 job_counter=0
 
 for data in "${datasets[@]}"
@@ -39,47 +42,60 @@ do
     mkdir ${data} 2>/dev/null
     cd ${data}
 
-    for sim in "${runs[@]}"
+    for model in "${models[@]}"
     do
-        run=${sim}
-        mkdir run${run} 2>/dev/null
-        cd run${run}
 
-        ((job_counter++))
-        if [ "$job_counter" -le "$jobs_done" ]; then
-            echo job ${job_counter} run${run} ${data} r${radius}k${theta} already submitted.
-            continue
-        fi
+        for rot in "${rotate[@]}"
+        do
 
-        ## Copy Files
-        if [ ${script} == "train" ]; then
-            cp -r ${main_directory}/../Steerable/Steerable/ ./
-            cp ${main_directory}/datasets/${data}/model.py ./
-        fi
-        cp ${main_directory}/scripts/${script}.sh ./ 2>/dev/null
-        cp ${main_directory}/scripts/${script}.py ./ 2>/dev/null
-    
-        ## Modify Script
-        sed -i "s/GPU/${gpu}/g" ${script}.sh
-        sed -i "s/RUN/${run}/g" ${script}.sh
-        sed -i "s/DATASET/${data:0:1}/g" ${script}.sh
-        sed -i "s/RADIUS/${radius}/g" ${script}.sh
-        sed -i "s/THETA/${theta}/g" ${script}.sh
-        sed -i "s/LOSS/${loss}/g" ${script}.sh
-        sed -i "s#DATAPATH#${data_path}/${data}/data#g" ${script}.sh
-        sed -i "s/BATCHSIZE/${batch_size}/g" ${script}.sh
-        sed -i "s/EPOCHS/${epochs}/g" ${script}.sh
-        sed -i "s/METRICTYPE/${metric_type}/g" ${script}.sh
-        sed -i "s/SAVE/${save}/g" ${script}.sh
+            for sim in "${runs[@]}"
+            do
+                ((job_counter++))
+                if [ "$job_counter" -le "$jobs_done" ]; then
+                     echo job ${job_counter} run${run} ${data} already submitted.
+                     continue
+                fi
 
-        wait_for_jobs
+                run=$((10*model + 5*rot + sim))
+                if [ $run -lt 10 ]; then
+                     run=0$run
+                fi
+                mkdir run$run 2>/dev/null
+                cd run$run
 
-        echo job ${job_counter} ${script}-run${run} ${data}
-        sbatch ${script}.sh
+                ## Copy Files
+                if [ ${script} == "train" ]; then
+                    cp -r ${main_directory}/../Steerable/Steerable/ ./
+                    cp ${main_directory}/datasets/${data}/model${model}.py ./model.py
+                fi
+                cp ${main_directory}/scripts/${script}.sh ./ 2>/dev/null
+                cp ${main_directory}/scripts/${script}.py ./ 2>/dev/null
+      
+                ## Modify Script
+                sed -i "s/RUN/${run}/g" ${script}.sh
+                sed -i "s/ROTATE/${rot}/g" ${script}.sh
+                sed -i "s/DATASET/${data:0:3}/g" ${script}.sh
+                sed -i "s/LOSS/${loss}/g" ${script}.sh
+                sed -i "s#DATAPATH#${data_path}/${data}/data#g" ${script}.sh
+                sed -i "s/BATCHSIZE/${batch_size}/g" ${script}.sh
+                sed -i "s/EPOCHS/${epochs}/g" ${script}.sh
+                sed -i "s/METRICTYPE/${metric_type}/g" ${script}.sh
+                sed -i "s/SAVE/${save}/g" ${script}.sh
 
-        cd ../
+                wait_for_jobs
+
+                echo job ${job_counter} ${script}-run${run} ${data}
+                sbatch ${script}.sh
+
+                sed -i "s/^jobs_done=.*/jobs_done=$((job_counter))/g" $main_directory/run.sh
+
+                cd ../
+           done
+        done
     done
-    cd ../
+    cd ../ 
 done
 
+sed -i "s/^jobs_done=.*/jobs_done=0/g" $main_directory/run.sh
 echo "All jobs Submitted!"
+echo
