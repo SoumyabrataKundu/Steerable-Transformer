@@ -2,3 +2,4 @@ archive/*
 experiment_runs/*
 final_runs/
 outputs/
+stats/
