@@ -16,7 +16,7 @@ def main(root, dataset=None, save=False):
 
         n_sim   = np.zeros((4, 2), dtype=np.int64)    # model, rotated
         running = np.zeros((4, 2), dtype=np.int64)    # model, rotated
-        dice    = np.zeros((4, 2, 2, 2))              # model, rotated, macro/micro, mean/var
+        dice    = np.zeros((4, 2, 2, 2))              # model, rotated, micro/macro, mean/var
         pattern1 = re.compile(r"Micro Dice\s*=\s*(\d+\.?\d*)\s*")
         pattern2 = re.compile(r"Macro Dice\s*=\s*(\d+\.?\d*)\s*")
 
