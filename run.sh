@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Experiment
-models=(0 1 2 3)
-runs=(1) 
+models=(3)
+runs=(4) 
 datasets=("PH2")
-rotate=(0)
+rotate=(1)
 script="aug"
 metric_type="dice"
 save=1
@@ -16,7 +16,7 @@ epochs=100
 # Job Parameters
 main_directory=$PWD
 data_path="/project2/risi/soumyabratakundu/Data"
-jobs_done=3
+jobs_done=0
 MAX_CONCURRENT_JOBS=28
 
 wait_for_jobs() {

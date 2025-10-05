@@ -54,8 +54,7 @@ def main(model_path, data_path, batch_size, metric_type, save):
     logger.info(f"{sum(x.numel() for x in model.parameters())} paramerters in total\n\n")
 
     function = lambda data, degree : (rotate_image2D(data[0], degree, order=1), rotate_image2D(data[1], degree, order=0))
-    n_angle = 4
-    parameters = 360 * torch.arange(4) / 4
+    parameters = [0, 180]
     aug_dataset = Augment(datasets['eval_test'], function=function, parameters=parameters, batched=False)
     data_loader = torch.utils.data.DataLoader(aug_dataset, batch_size = 1)
 
@@ -87,8 +86,8 @@ def main(model_path, data_path, batch_size, metric_type, save):
     # Saving
     if save:
         f = h5py.File(os.path.join(log_dir, 'aug.hdf5'), 'w')
-        f.create_dataset('probs', (0, num_classes)  + image_shape, maxshape=(None, num_classes) + image_shape, chunks=True)
-        prob_dataset = f['probs']
+        f.create_dataset('preds', (0,) + image_shape, maxshape=(None,) + image_shape, chunks=True)
+        pred_dataset = f['preds']
 
     logger.info(f"\nTesting:\n")
     logger.info(f'Running evaluation with sigma={sigma:.2f}:')
@@ -118,8 +117,8 @@ def main(model_path, data_path, batch_size, metric_type, save):
                     f'<{metric_type.capitalize()}> : {total_score/(batch_index+1):.4f}')
  
         if save:
-            prob_dataset.resize((len(prob_dataset) + len(probs),) + prob_dataset.shape[1:])
-            prob_dataset[-len(probs):] = probs.cpu()
+            pred_dataset.resize((len(pred_dataset) + len(preds),) + pred_dataset.shape[1:])
+            pred_dataset[-len(preds):] = preds.cpu()
 
     if save:
         f.close()
