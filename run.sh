@@ -1,16 +1,16 @@
 #!/bin/bash
 
 # Experiment
-models=(3)
-runs=(4) 
-datasets=("PH2")
-rotate=(1)
+models=(1 3)
+runs=(1) 
+datasets=("BraTS")
+rotate=(0)
 script="aug"
 metric_type="dice"
 save=1
 
 # Model Hyperparameters
-batch_size=3
+batch_size=4
 epochs=100
 
 # Job Parameters
