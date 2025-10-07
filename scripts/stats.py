@@ -55,9 +55,9 @@ def main(root, dataset=None, save=False):
             print(colored(f'\t\tModel {model} : ', 'green'), end='')
             for rot in [0,1]:
                 print(colored(f"{'Non-' if rot==0 else ''}Rotated : ", 'red') + \
-                      colored(f'\({final_stats[model, rot, 0, 0]:.2f}_{{\pm {final_stats[model, rot, 0, 1]:.2f}}}\) ', 'white') + \
+                      colored(f'{final_stats[model, rot, 0, 0]:.2f} +- {final_stats[model, rot, 0, 1]:.2f} ', 'white') + \
                       colored(' / ', 'yellow') + \
-                      colored(f'\({final_stats[model, rot, 1, 0]:.2f}_{{\pm {final_stats[model, rot, 1, 1]:.2f}}}\) ', 'white') + \
+                      colored(f'{final_stats[model, rot, 1, 0]:.2f} +- {final_stats[model, rot, 1, 1]:.2f} ', 'white') + \
                       colored(f'({n_sim[model, rot]}{" + " + str(running[model, rot]) if running[model, rot]>0 else ""})\t', 'dark_grey'), end='')
             print()
         if save:

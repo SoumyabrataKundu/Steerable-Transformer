@@ -1,16 +1,16 @@
 #!/bin/bash
 
 # Experiment
-models=(1 3)
-runs=(1) 
-datasets=("BraTS")
-rotate=(0)
-script="aug"
+models=(1)
+runs=(1 2 3 4) 
+datasets=("MoNuSeg")
+rotate=(0 1)
+script="eval"
 metric_type="dice"
-save=1
+save=0
 
 # Model Hyperparameters
-batch_size=4
+batch_size=3
 epochs=100
 
 # Job Parameters
@@ -32,8 +32,8 @@ on_interrupt() {
 stty -echoctl
 trap on_interrupt SIGINT
 
-mkdir final_runs 2>/dev/null
-cd final_runs
+mkdir final_runs1 2>/dev/null
+cd final_runs1
 
 job_counter=0
 

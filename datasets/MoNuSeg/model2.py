@@ -34,7 +34,6 @@ class Model(torch.nn.Module):
 
         self.encoder_decoder = torch.nn.Sequential(
             snn.SE2PositionwiseFeedforward(transformer_dim, 2*transformer_dim, freq_cutoff),
-            snn.SE2BatchNorm(),
         )
  
         self.convolution_head1 = torch.nn.Sequential(
