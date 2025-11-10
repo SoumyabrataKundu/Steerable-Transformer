@@ -11,11 +11,11 @@ class Model(torch.nn.Module):
 
         n_angle = 1000
         freq_cutoff = 8
-        self.num_classes = 2
+        self.num_classes = 11
         transformer_dim = 64
 
         self.convolution_stem1 = torch.nn.Sequential(
-            snn.SE2ConvType1(3,8,5, freq_cutoff, n_angle=n_angle, padding='same'),
+            snn.SE2ConvType1(1,8,5, freq_cutoff, n_angle=n_angle, padding='same'),
             snn.SE2NormNonLinearity(8, freq_cutoff),
             snn.SE2ConvType2(8,16,5, freq_cutoff, n_angle=n_angle, padding='same'),
             snn.SE2BatchNorm(),
@@ -37,19 +37,18 @@ class Model(torch.nn.Module):
         )
  
         self.convolution_head1 = torch.nn.Sequential(
-            snn.SE2ConvType2(2*transformer_dim,32,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
+            snn.SE2ConvType2(transformer_dim,32,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
             snn.SE2NormNonLinearity(32, freq_cutoff),
             snn.SE2ConvType2(32,16,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
             snn.SE2BatchNorm(),
         )
 
         self.convolution_head2 = torch.nn.Sequential(
-            snn.SE2ConvType2(2*16,8,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
+            snn.SE2ConvType2(16,8,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
             snn.SE2NormNonLinearity(8, freq_cutoff),
             snn.SE2BatchNorm(),
             snn.SE2ConvType2(8, self.num_classes,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
         )
-
         
     def forward(self, x):
         x = x.type(torch.cfloat)
@@ -66,11 +65,11 @@ class Model(torch.nn.Module):
         # Upsampling
         x = torch.nn.functional.interpolate(x.real, size=(x.shape[-3], *stem2.shape[-2:]), mode="trilinear") + \
                   1j * torch.nn.functional.interpolate(x.imag, size=(x.shape[-3], *stem2.shape[-2:]), mode="trilinear")
-        x = self.convolution_head1(torch.cat([x, stem2], dim=2)) # skip connection
+        x = self.convolution_head1(x) # skip connection
 
         x = torch.nn.functional.interpolate(x.real, size=(x.shape[-3], *stem1.shape[-2:]), mode="trilinear") + \
                   1j * torch.nn.functional.interpolate(x.imag, size=(x.shape[-3], *stem1.shape[-2:]), mode="trilinear")
-        x = self.convolution_head2(torch.cat([x, stem1], dim=2)) # skip connection
+        x = self.convolution_head2(x) # skip connection
  
         # Norm
         x = torch.linalg.vector_norm(x, dim=1) 
@@ -82,16 +81,12 @@ class Model(torch.nn.Module):
 #######################################################################################################################
 
 def get_datasets(data_path, rotate=True):
-    data_file = h5py.File(os.path.join(data_path, 'PH2_patched256_128.hdf5'), 'r')
-
+    data_file = h5py.File(os.path.join(data_path, 'MNIST_segment56.hdf5'), 'r')
     train_dataset = HDF5(data_file, mode='train')
     if rotate:
         train_dataset = RandomRotate(train_dataset)
+    data_file = h5py.File(os.path.join(data_path, 'MNIST_segment_rotated56.hdf5'), 'r')
     val_dataset = HDF5(data_file, mode='val')
     test_dataset = HDF5(data_file, mode='test')
 
-    data_file = h5py.File(os.path.join(data_path, 'PH2.hdf5'))
-    eval_val_dataset = HDF5(data_file, mode='val')
-    eval_test_dataset = HDF5(data_file, mode='test')
-
-    return {'train' : train_dataset, 'val' : val_dataset, 'test' : test_dataset, 'eval_val' : eval_val_dataset, 'eval_test' : eval_test_dataset}
+    return {'train' : train_dataset, 'val' : val_dataset, 'test' : test_dataset}

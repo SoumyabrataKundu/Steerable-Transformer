@@ -7,22 +7,22 @@ from Steerable.utils import HDF5, RandomRotate
 class Model(torch.nn.Module):
     def __init__(self) -> None:
         super(Model, self).__init__()
-        self.num_classes = 2
-        transformer_dim = 512
+        self.num_classes = 11
+        transformer_dim = 400
 
         self.convolution_stem1 = torch.nn.Sequential(
-            torch.nn.Conv2d(3,64,5, padding='same'),
+            torch.nn.Conv2d(1,32,5, padding='same'),
             torch.nn.ReLU(),
-            torch.nn.Conv2d(64,128,5, padding='same'),
-            torch.nn.BatchNorm2d(128),
+            torch.nn.Conv2d(32,64,5, padding='same'),
+            torch.nn.BatchNorm2d(64),
         )
         
         self.pool1 = torch.nn.AvgPool2d(4)
   
         self.convolution_stem2 =  torch.nn.Sequential(
-            torch.nn.Conv2d(128,256,5, padding='same'),
+            torch.nn.Conv2d(64,128,5, padding='same'),
             torch.nn.ReLU(),
-            torch.nn.Conv2d(256,transformer_dim,5, padding='same'),
+            torch.nn.Conv2d(128,transformer_dim,5, padding='same'),
             torch.nn.BatchNorm2d(transformer_dim),
 
         )
@@ -30,23 +30,27 @@ class Model(torch.nn.Module):
         self.pool2 = torch.nn.AvgPool2d(4)
 
         self.encoder_decoder = torch.nn.Sequential(
-            torch.nn.TransformerEncoder(torch.nn.TransformerEncoderLayer(d_model=transformer_dim, nhead=4, batch_first=True), num_layers=4),
+            torch.nn.Linear(transformer_dim, 2*transformer_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(2*transformer_dim, transformer_dim)
         )
+        self.norm = torch.nn.BatchNorm2d(transformer_dim)
  
         self.convolution_head1 = torch.nn.Sequential(
-            torch.nn.Conv2d(2*transformer_dim,256,5, padding = 'same'),
+            torch.nn.Conv2d(transformer_dim,128,5, padding = 'same'),
             torch.nn.ReLU(),
-            torch.nn.Conv2d(256,128,5, padding = 'same'),
-            torch.nn.BatchNorm2d(128),
+            torch.nn.Conv2d(128,64,5, padding = 'same'),
+            torch.nn.BatchNorm2d(64),
         )
 
         self.convolution_head2 = torch.nn.Sequential(
-            torch.nn.Conv2d(2*128,64,5, padding = 'same'),
+            torch.nn.Conv2d(64,32,5, padding = 'same'),
             torch.nn.ReLU(),
-            torch.nn.BatchNorm2d(64),
-            torch.nn.Conv2d(64,self.num_classes,5, padding = 'same'),
+            torch.nn.BatchNorm2d(32),
+            torch.nn.Conv2d(32,self.num_classes,5, padding = 'same'),
         )
 
+        
     def forward(self, x):
         # Downsampling
         ## Downsampling I
@@ -60,14 +64,15 @@ class Model(torch.nn.Module):
         x_shape = x.shape
         x = self.encoder_decoder(x.flatten(2).transpose(1,2))
         x = x.transpose(1,2).reshape(*x_shape)
+        x = self.norm(x)
 
         # Upsampling
         ## Upsampling I
         x = torch.nn.functional.interpolate(x, size=stem2.shape[-2:], mode="bilinear")
-        x = self.convolution_head1(torch.cat([x, stem2], dim=1)) # skip connection
+        x = self.convolution_head1(x + stem2) # skip connection
         ## Upsampling II
         x = torch.nn.functional.interpolate(x, size=stem1.shape[-2:], mode="bilinear")
-        x = self.convolution_head2(torch.cat([x, stem1], dim=1)) # skip connection
+        x = self.convolution_head2(x + stem1) # skip connection
  
         return x
 
@@ -76,16 +81,12 @@ class Model(torch.nn.Module):
 #######################################################################################################################
 
 def get_datasets(data_path, rotate=True):
-    data_file = h5py.File(os.path.join(data_path, 'MoNuSeg_patched256_128.hdf5'), 'r')
-
+    data_file = h5py.File(os.path.join(data_path, 'MNIST_segment56.hdf5'), 'r')
     train_dataset = HDF5(data_file, mode='train')
     if rotate:
         train_dataset = RandomRotate(train_dataset)
+    data_file = h5py.File(os.path.join(data_path, 'MNIST_segment_rotated56.hdf5'), 'r')
     val_dataset = HDF5(data_file, mode='val')
     test_dataset = HDF5(data_file, mode='test')
 
-    data_file = h5py.File(os.path.join(data_path, 'MoNuSeg.hdf5'))
-    eval_val_dataset = HDF5(data_file, mode='val')
-    eval_test_dataset = HDF5(data_file, mode='test')
-
-    return {'train' : train_dataset, 'val' : val_dataset, 'test' : test_dataset, 'eval_val' : eval_val_dataset, 'eval_test' : eval_test_dataset}
+    return {'train' : train_dataset, 'val' : val_dataset, 'test' : test_dataset}

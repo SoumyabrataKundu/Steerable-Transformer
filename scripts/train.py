@@ -3,17 +3,18 @@ import copy
 import time
 import h5py
 import logging
+import re
 
 import torch
 from model import Model, get_datasets
 from Steerable.utils import Metrics, FocalLoss
 
-def main(data_path, batch_size, rotate, learning_rate, weight_decay, num_epochs, num_workers, lr_decay_rate, lr_decay_schedule, metric_type, save=0):
+def main(data_path, batch_size, rotate, learning_rate, weight_decay, num_epochs, num_workers, lr_decay_rate, lr_decay_schedule, metric_type, restore=0, save=0):
     #################################################################################################################################
     ########################################################## Logging ##############################################################
     #################################################################################################################################
     arguments = copy.deepcopy(locals())
-    
+    restore = bool(int(restore))
     log_dir = os.path.join('log/')
     if not os.path.isdir(log_dir):
         os.mkdir(log_dir)
@@ -24,7 +25,7 @@ def main(data_path, batch_size, rotate, learning_rate, weight_decay, num_epochs,
     logger.handlers = []
     ch = logging.StreamHandler()
     logger.addHandler(ch)
-    fh = logging.FileHandler(os.path.join(log_dir, "log.txt"), mode = "w")
+    fh = logging.FileHandler(os.path.join(log_dir, "log.txt"), mode = "a" if restore else "w")
     logger.addHandler(fh)
 
     if num_epochs>0:
@@ -52,6 +53,10 @@ def main(data_path, batch_size, rotate, learning_rate, weight_decay, num_epochs,
     device = torch.device("cuda")
     model = model.to(device)
     model(datasets['train'][0][0].unsqueeze(0).to(device))
+    ## Restoring from previous training
+    if restore:
+        model.load_state_dict(torch.load(os.path.join(log_dir, "state.pkl")))
+
     logger.info("{} paramerters in total".format(sum(x.numel() for x in model.parameters())))        
 
     # Optimizer
@@ -134,7 +139,20 @@ def main(data_path, batch_size, rotate, learning_rate, weight_decay, num_epochs,
 
     # Metric
     epoch, early_stop, early_stop_after, best_val_loss, best_score = 0, 0, 300, float('inf'), 0
-   
+    if restore:
+        with open('log/log.txt', 'r') as f:
+            lines = f.readlines()
+            for i in range(4,len(lines)+1):
+                try:
+                    epoch = int(lines[-i][1:3]) - 1
+                    break
+                except:
+                    pass
+            for i in range(4,len(lines)+1):
+                match = re.search(r"Best Dice=(\d+\.\d+)", lines[-i])
+                if match:
+                    best_score = float(match.group(1))
+                    break
     # Training
     logger.info(f"\n\n\nTraining:\n")
     for epoch in range(epoch, num_epochs):
@@ -285,6 +303,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr_decay_rate", type=float, default=0.0)
     parser.add_argument("--lr_decay_schedule", type=int, default=1)
     parser.add_argument("--metric_type", type=str, required=True)
+    parser.add_argument("--restore", type=int, default = 0)
     parser.add_argument("--save", type=int, default=0)
 
     args = parser.parse_args()

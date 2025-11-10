@@ -1,102 +1,93 @@
-import sys
+import os
+import h5py
 import torch
-import torchvision
-import torchvision.transforms as transforms
 
-sys.path.append('/project2/risi/soumyabratakundu/se_eq_transformer/2D/src/')
-from SteerableTransformer2D.conv_layers import *
-from SteerableTransformer2D.transformer_layers import *
+import Steerable.nn as snn
+from Steerable.utils import HDF5, RandomRotate
 
-
-class Model(nn.Module):
-    def __init__(self, n_radius, max_m) -> None:
+class Model(torch.nn.Module):
+    def __init__(self):
         super(Model, self).__init__()
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        n_theta = 40
 
-        self.network = nn.Sequential(
-            FintConv2DType1(1,  64, 5, n_radius, n_theta, max_m, padding = 'same', device = device), # 28 X 28
-            CGNonLinearity2D(max_m, device = device),
-            #HNonLinearity2D(64, max_m, device = device),
-            FintConv2DType2(64, 128, 4, n_radius, n_theta, max_m, stride = 4, device = device),     # 7 X 7
-            SteerableBatchNorm2D(),
-            
-            SE2TransformerEncoder(128,8,max_m, n_layers = 4,device = device),
- 
- 
-            #FintConv2DType2(128, 256, 3, n_radius, n_theta, max_m, padding='same', device = device), #  7 X  7
+        n_angle = 1000
+        freq_cutoff = 8
+        self.num_classes = 11
+        transformer_dim = 139
 
-            NormFlatten(),
-            torch.nn.Linear(128,10)
+        self.convolution_stem1 = torch.nn.Sequential(
+            snn.SE2ConvType1(1,8,5, freq_cutoff, n_angle=n_angle, padding='same'),
+            snn.SE2NormNonLinearity(8, freq_cutoff),
+            snn.SE2ConvType2(8,16,5, freq_cutoff, n_angle=n_angle, padding='same'),
+            snn.SE2BatchNorm(),
+        )
+        
+        self.pool1 = snn.SE2AvgPool(4)
+  
+        self.convolution_stem2 = torch.nn.Sequential(
+            snn.SE2ConvType2(16,32,5, freq_cutoff, n_angle=n_angle, padding='same'),
+            snn.SE2NormNonLinearity(32, freq_cutoff),
+            snn.SE2ConvType2(32,transformer_dim,5, freq_cutoff, n_angle=n_angle, padding='same'),
+            snn.SE2BatchNorm(),
         )
 
+        self.pool2 = snn.SE2AvgPool(4)
 
+        self.encoder_decoder = torch.nn.Sequential(
+            snn.SE2PositionwiseFeedforward(transformer_dim, 2*transformer_dim, freq_cutoff),
+            snn.SE2BatchNorm(),
+        )
+ 
+        self.convolution_head1 = torch.nn.Sequential(
+            snn.SE2ConvType2(transformer_dim,32,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
+            snn.SE2NormNonLinearity(32, freq_cutoff),
+            snn.SE2ConvType2(32,16,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
+            snn.SE2BatchNorm(),
+        )
 
+        self.convolution_head2 = torch.nn.Sequential(
+            snn.SE2ConvType2(16,8,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
+            snn.SE2NormNonLinearity(8, freq_cutoff),
+            snn.SE2BatchNorm(),
+            snn.SE2ConvType2(8, self.num_classes,5, freq_cutoff, n_angle=n_angle, padding = 'same'),
+        )
+        
     def forward(self, x):
-        return self.network(x)
-  
-
-
-
-import torch
-import os
-import torchvision.transforms as transforms
-import h5py
-
-class RotMNIST(torch.utils.data.Dataset):
-    def __init__(self, file, mode = 'train', image_transform = None, target_transform = None) -> None:
+        x = x.type(torch.cfloat)
         
-        if not mode in ["train", "test", "val"]:
-            raise ValueError("Invalid mode")
-        
-        self.mode = mode
-        self.file = file
-        self.image_transform = image_transform
-        self.target_transform = target_transform
-        self.n_samples = len(self.file[mode+'_targets'])
+        # Downsampling
+        stem1 = self.convolution_stem1(x)
+        x = self.pool1(stem1)
+        stem2 = self.convolution_stem2(x)
+        x = self.pool2(stem2)
 
-    def __getitem__(self, index):
-        
-        # Reading from file
-        img = torch.from_numpy(self.file[self.mode + '_images'][index]).unsqueeze(0)
-        target = self.file[self.mode + '_targets'][index]
-        
-        # Applying trasnformations
-        if self.image_transform is not None:
-            img = self.image_transform(img)
-            
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-        
-        return img, target
+        # Encoder-Decoder
+        x = self.encoder_decoder(x)
 
-    def __len__(self):
-        return self.n_samples
+        # Upsampling
+        x = torch.nn.functional.interpolate(x.real, size=(x.shape[-3], *stem2.shape[-2:]), mode="trilinear") + \
+                  1j * torch.nn.functional.interpolate(x.imag, size=(x.shape[-3], *stem2.shape[-2:]), mode="trilinear")
+        x = self.convolution_head1(x + stem2) # skip connection
 
+        x = torch.nn.functional.interpolate(x.real, size=(x.shape[-3], *stem1.shape[-2:]), mode="trilinear") + \
+                  1j * torch.nn.functional.interpolate(x.imag, size=(x.shape[-3], *stem1.shape[-2:]), mode="trilinear")
+        x = self.convolution_head2(x + stem1) # skip connection
+ 
+        # Norm
+        x = torch.linalg.vector_norm(x, dim=1) 
 
-def get_datasets(data_path):
-    # Load the dataset
-    data_file = h5py.File(os.path.join(data_path, 'rotated_mnist.hdf5'), 'r')
-    
-    # Transformations
-    image_transform = transforms.Compose([
-        transforms.Normalize(mean=0, std = 1) 
-        ])
-    
-    # Load datasets
-    train_dataset = RotMNIST(data_file, mode='train', image_transform=image_transform)
-    val_dataset = RotMNIST(data_file, mode='val', image_transform=image_transform)
-    test_dataset = RotMNIST(data_file, mode='test', image_transform=image_transform)
-    
-    train_dataset = torch.utils.data.ConcatDataset([train_dataset, val_dataset])
-    test_set_size = int(len(test_dataset) * 0.95)
-    test_dataset, val_dataset = torch.utils.data.random_split(test_dataset, [test_set_size, len(test_dataset) - test_set_size])
-    
-    transformations = transforms.Compose([
-        #transforms.RandomRotation(degrees=(0, 360)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=0, std = 1)
-        ])
-    #test_dataset = torchvision.datasets.MNIST(data_path, train=True, transform=transformations)
+        return x
 
-    return {'train' : train_dataset, 'val' : val_dataset, 'test' : test_dataset} 
+#######################################################################################################################
+###################################################### Dataset ########################################################
+#######################################################################################################################
+
+def get_datasets(data_path, rotate=True):
+    data_file = h5py.File(os.path.join(data_path, 'MNIST_segment56.hdf5'), 'r')
+    train_dataset = HDF5(data_file, mode='train')
+    if rotate:
+        train_dataset = RandomRotate(train_dataset)
+    data_file = h5py.File(os.path.join(data_path, 'MNIST_segment_rotated56.hdf5'), 'r')
+    val_dataset = HDF5(data_file, mode='val')
+    test_dataset = HDF5(data_file, mode='test')
+
+    return {'train' : train_dataset, 'val' : val_dataset, 'test' : test_dataset}

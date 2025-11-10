@@ -1,16 +1,17 @@
 #!/bin/bash
 
 # Experiment
-models=(1)
-runs=(1 2 3 4) 
-datasets=("MoNuSeg")
+models=(0)
+runs=(5) 
+datasets=("BraTS")
 rotate=(0 1)
-script="eval"
+script="train"
 metric_type="dice"
+restore=0
 save=0
 
 # Model Hyperparameters
-batch_size=3
+batch_size=8
 epochs=100
 
 # Job Parameters
@@ -32,8 +33,8 @@ on_interrupt() {
 stty -echoctl
 trap on_interrupt SIGINT
 
-mkdir final_runs1 2>/dev/null
-cd final_runs1
+mkdir final_runs2 2>/dev/null
+cd final_runs2
 
 job_counter=0
 
@@ -80,6 +81,7 @@ do
                 sed -i "s/BATCHSIZE/${batch_size}/g" ${script}.sh
                 sed -i "s/EPOCHS/${epochs}/g" ${script}.sh
                 sed -i "s/METRICTYPE/${metric_type}/g" ${script}.sh
+                sed -i "s/RESTORE/${restore}/g" ${script}.sh
                 sed -i "s/SAVE/${save}/g" ${script}.sh
 
                 wait_for_jobs
