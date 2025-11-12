@@ -1,17 +1,17 @@
 #!/bin/bash
 
 # Experiment
-models=(0)
-runs=(5) 
-datasets=("BraTS")
-rotate=(0 1)
-script="train"
+models=(1)
+runs=(3) 
+datasets=("PH2")
+rotate=(0)
+script="aug"
 metric_type="dice"
 restore=0
-save=0
+save=1
 
 # Model Hyperparameters
-batch_size=8
+batch_size=3
 epochs=100
 
 # Job Parameters

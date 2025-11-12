@@ -61,7 +61,7 @@ def main(model_path, data_path, batch_size, metric_type, save):
         function = lambda data, degree : (rotate_image2D(data[0].permute(0,3,1,2), degree, order=1).permute(0,2,3,1), 
                                           rotate_image2D(data[1].permute(2,0,1), degree, order=0).permute(1,2,0))
     parameters = [0, 180]
-    aug_dataset = torch.utils.data.Subset(Augment(datasets['eval_test'], function=function, parameters=parameters, batched=False), list(range(20)))
+    aug_dataset = Augment(datasets['eval_test'], function=function, parameters=parameters, batched=False)
     data_loader = torch.utils.data.DataLoader(aug_dataset, batch_size = 1)
 
  ####################################################################################################################################
@@ -74,7 +74,6 @@ def main(model_path, data_path, batch_size, metric_type, save):
     class ApplyModel:
         def __call__(self, tensor):
             return torch.softmax(model(tensor), dim=1)
-
 
     # Patchification-Reconstruction
     with open("output.eval", "r") as f:
